@@ -63,6 +63,11 @@ Then update `DATABASE_URL` locally and in the cloud Secrets.
 4. Put the client ID and secret in the `[auth]` block (locally and/or in cloud Secrets).
 5. Set `ALLOWED_EMAILS`. Gmail addresses are compared ignoring dots and `+tags`.
 
+For a local run, set it in `.env` as a comma-separated value, for example
+`ALLOWED_EMAILS=you@gmail.com`. For Community Cloud, add it as a top-level
+value in the app's Secrets, for example `ALLOWED_EMAILS = "you@gmail.com"`:
+do not put it inside the `[auth]` block.
+
 While the Google app is in Testing, only listed test users can sign in at all; the app's own `ALLOWED_EMAILS` check is a second lock.
 
 ## Run locally (Windows)
