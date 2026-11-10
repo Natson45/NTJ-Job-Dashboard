@@ -3,7 +3,7 @@
 * Google handles the password (and your 2-step verification, if it's on).
 * Streamlit keeps you signed in with its own signed, httpOnly cookie (about 30 days),
   which JavaScript on the page can't read.
-* Only addresses listed in ALLOWED_EMAILS (.env) get past the sign-in page.
+* Only addresses listed in ALLOWED_EMAILS (.env or Streamlit Secrets) get past the sign-in page.
 
 Setup: .streamlit/secrets.toml holds the [auth] block (see README, "Sign-in").
 """
@@ -32,7 +32,13 @@ def _normalize(email: str) -> str:
 
 def _allowed() -> set[str]:
     load_dotenv(override=True)  # re-read .env so edits apply without a restart
-    return {_normalize(e) for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()}
+    configured = os.environ.get("ALLOWED_EMAILS", "").strip()
+    if not configured:
+        try:
+            configured = str(st.secrets.get("ALLOWED_EMAILS", "")).strip()
+        except FileNotFoundError:
+            configured = ""
+    return {_normalize(e) for e in configured.split(",") if e.strip()}
 
 
 def _auth_configured() -> bool:
@@ -48,7 +54,10 @@ def require_login() -> str:
     """Return the signed-in email, or show the sign-in page and stop."""
     allowed = _allowed()
     if not allowed:
-        raise AuthConfigError("ALLOWED_EMAILS is empty in .env. Add your Google email (see README, Sign-in).")
+        raise AuthConfigError(
+            "ALLOWED_EMAILS is empty. Add your Google email to .env (local) or "
+            "Streamlit Secrets at the top level (deployed app; see README, Sign-in)."
+        )
     if not _auth_configured():
         raise AuthConfigError(
             "Google sign-in isn't set up yet: fill in client_id and client_secret in "
