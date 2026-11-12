@@ -2,7 +2,7 @@
 
 A Streamlit dashboard for tracking job applications from first acknowledgment through screens, interviews, offers, rejections and ghosting.
 
-- **Data:** Supabase Postgres, `jobs` schema (companies, applications, emails, status history, interviews, agent runs).
+- **Data:** Postgres, `jobs_nathan_dashboard` schema (companies, applications, emails, status history, interviews, agent runs).
 - **Inbox agent (separate from this repo):** a scheduled Claude task reads a dedicated job inbox, creates and updates applications, and books interviews in Google Calendar. This app reads and edits the same tables.
 - **Sign-in:** Google, restricted to the emails in `ALLOWED_EMAILS`.
 
@@ -43,12 +43,12 @@ Generate a cookie secret with `python -c "import secrets; print(secrets.token_ur
 
 ## Database access
 
-The app connects as a limited Postgres role, `jobs_dashboard`, never the main `postgres` user. The role can read and write the `jobs` tables only (no deletes, no other schemas). Row Level Security is on for every table, with policies only for this role.
+Connect with a limited Postgres role (not the database administrator). Grant it read and write access only to the `jobs_nathan_dashboard` schema and required sequences; avoid delete privileges unless needed. Configure Row Level Security policies for the role as appropriate for your database.
 
-Set or rotate its password in the Supabase SQL Editor:
+Set or rotate the role password using your database's administration tools:
 
 ```sql
-alter role jobs_dashboard with password '<letters-and-numbers-only>';
+alter role "<database-role>" with password '<database-password>';
 ```
 
 Then update `DATABASE_URL` locally and in the cloud Secrets.
@@ -64,8 +64,8 @@ Then update `DATABASE_URL` locally and in the cloud Secrets.
 5. Set `ALLOWED_EMAILS`. Gmail addresses are compared ignoring dots and `+tags`.
 
 For a local run, set it in `.env` as a comma-separated value, for example
-`ALLOWED_EMAILS=you@gmail.com`. For Community Cloud, add it as a top-level
-value in the app's Secrets, for example `ALLOWED_EMAILS = "you@gmail.com"`:
+`ALLOWED_EMAILS=<your-email>`. For Community Cloud, add it as a top-level
+value in the app's Secrets, for example `ALLOWED_EMAILS = "<your-email>"`:
 do not put it inside the `[auth]` block.
 
 While the Google app is in Testing, only listed test users can sign in at all; the app's own `ALLOWED_EMAILS` check is a second lock.

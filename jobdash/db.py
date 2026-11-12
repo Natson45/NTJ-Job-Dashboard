@@ -1,6 +1,6 @@
 """Database access for the dashboard.
 
-Connects directly to the Supabase Postgres database with DATABASE_URL (see .env.example).
+Connects to the Postgres database with DATABASE_URL (see .env.example).
 All reads are cached for a short time; every write clears the cache.
 """
 
@@ -31,9 +31,9 @@ def _connect() -> psycopg.Connection:
     url = os.environ.get("DATABASE_URL", "").strip()
     if not url:
         raise ConfigError(
-            "DATABASE_URL is not set. Copy .env.example to .env and paste your Supabase connection string."
+            "DATABASE_URL is not set. Copy .env.example to .env and add your Postgres connection string."
         )
-    # prepare_threshold=None keeps this working through Supabase's connection pooler.
+    # prepare_threshold=None keeps this working through Postgres connection poolers.
     return psycopg.connect(url, autocommit=True, row_factory=dict_row, prepare_threshold=None)
 
 
@@ -61,7 +61,7 @@ def tx(actor: str = "manual") -> Iterator[psycopg.Cursor]:
     c = conn()
     with c.transaction():
         with c.cursor() as cur:
-            cur.execute("select set_config('jobs.actor', %s, true)", (actor,))
+            cur.execute("select set_config('jobs_nathan_dashboard.actor', %s, true)", (actor,))
             yield cur
     st.cache_data.clear()
 
@@ -71,7 +71,7 @@ def tx(actor: str = "manual") -> Iterator[psycopg.Cursor]:
 
 @st.cache_data(ttl=READ_TTL, show_spinner=False)
 def companies() -> pd.DataFrame:
-    return frame("select id, name from jobs.companies order by lower(name)")
+    return frame("select id, name from jobs_nathan_dashboard.companies order by lower(name)")
 
 
 @st.cache_data(ttl=READ_TTL, show_spinner=False)
@@ -81,9 +81,9 @@ def applications() -> pd.DataFrame:
         select a.id, c.name as company, a.role_title, a.status::text as status, a.track,
                a.location, a.applied_on, a.last_email_at, a.next_step, a.next_step_at,
                a.req_id, a.created_by, a.updated_at,
-               (select count(*) from jobs.emails e where e.application_id = a.id) as emails
-        from jobs.applications a
-        join jobs.companies c on c.id = a.company_id
+               (select count(*) from jobs_nathan_dashboard.emails e where e.application_id = a.id) as emails
+        from jobs_nathan_dashboard.applications a
+        join jobs_nathan_dashboard.companies c on c.id = a.company_id
         order by coalesce(a.last_email_at, a.created_at) desc
         """
     )
@@ -94,7 +94,7 @@ def application(app_id: int) -> dict[str, Any] | None:
     found = rows(
         """
         select a.*, a.status::text as status, c.name as company
-        from jobs.applications a join jobs.companies c on c.id = a.company_id
+        from jobs_nathan_dashboard.applications a join jobs_nathan_dashboard.companies c on c.id = a.company_id
         where a.id = %s
         """,
         (app_id,),
@@ -108,7 +108,7 @@ def status_history(app_id: int) -> pd.DataFrame:
         """
         select from_status::text as from_status, to_status::text as to_status,
                changed_at, changed_by, email_id
-        from jobs.status_history where application_id = %s
+        from jobs_nathan_dashboard.status_history where application_id = %s
         order by changed_at
         """,
         (app_id,),
@@ -121,7 +121,7 @@ def emails_for(app_id: int) -> pd.DataFrame:
         """
         select gmail_message_id, received_at, sender, subject, summary, label,
                confidence, needs_review, gmail_url
-        from jobs.emails where application_id = %s
+        from jobs_nathan_dashboard.emails where application_id = %s
         order by received_at desc
         """,
         (app_id,),
@@ -135,9 +135,9 @@ def interviews(start: datetime | None = None, end: datetime | None = None) -> pd
         select i.id, i.application_id, c.name as company, a.role_title, i.kind,
                i.starts_at, i.ends_at, i.location, i.interviewers, i.notes, i.source,
                i.gcal_event_id, i.sync_state
-        from jobs.interviews i
-        join jobs.applications a on a.id = i.application_id
-        join jobs.companies c on c.id = a.company_id
+        from jobs_nathan_dashboard.interviews i
+        join jobs_nathan_dashboard.applications a on a.id = i.application_id
+        join jobs_nathan_dashboard.companies c on c.id = a.company_id
         where (%(start)s::timestamptz is null or i.ends_at >= %(start)s)
           and (%(end)s::timestamptz is null or i.starts_at < %(end)s)
         order by i.starts_at
@@ -152,7 +152,7 @@ def review_emails() -> pd.DataFrame:
         """
         select e.gmail_message_id, e.received_at, e.sender, e.subject, e.summary,
                e.label, e.confidence, e.gmail_url, e.application_id
-        from jobs.emails e
+        from jobs_nathan_dashboard.emails e
         where e.needs_review
         order by e.received_at desc
         """
@@ -169,8 +169,8 @@ def funnel_counts() -> pd.DataFrame:
                  max(case h.to_status
                        when 'applied' then 1 when 'screen' then 2 when 'assessment' then 3
                        when 'interview' then 4 when 'offer' then 5 else 0 end) as stage
-          from jobs.applications a
-          left join jobs.status_history h on h.application_id = a.id
+          from jobs_nathan_dashboard.applications a
+          left join jobs_nathan_dashboard.status_history h on h.application_id = a.id
           group by a.id
         )
         select s.stage_name as stage, count(r.id) as applications
@@ -191,8 +191,8 @@ def application_paths() -> pd.DataFrame:
         select a.id, a.status::text as status,
                coalesce(array_agg(h.to_status::text order by h.changed_at, h.id)
                         filter (where h.id is not null), '{}') as path
-        from jobs.applications a
-        left join jobs.status_history h on h.application_id = a.id
+        from jobs_nathan_dashboard.applications a
+        left join jobs_nathan_dashboard.status_history h on h.application_id = a.id
         group by a.id, a.status
         """
     )
@@ -201,7 +201,7 @@ def application_paths() -> pd.DataFrame:
 @st.cache_data(ttl=READ_TTL, show_spinner=False)
 def last_run() -> dict[str, Any] | None:
     found = rows(
-        "select * from jobs.agent_runs where finished_at is not null order by finished_at desc limit 1"
+        "select * from jobs_nathan_dashboard.agent_runs where finished_at is not null order by finished_at desc limit 1"
     )
     return found[0] if found else None
 
@@ -212,7 +212,7 @@ def last_run() -> dict[str, Any] | None:
 def company_id_for(cur: psycopg.Cursor, name: str) -> int:
     cur.execute(
         """
-        insert into jobs.companies (name) values (%s)
+        insert into jobs_nathan_dashboard.companies (name) values (%s)
         on conflict (name) do update set name = excluded.name
         returning id
         """,
@@ -226,7 +226,7 @@ def create_application(values: dict[str, Any]) -> int:
         company_id = company_id_for(cur, values.pop("company"))
         cur.execute(
             """
-            insert into jobs.applications
+            insert into jobs_nathan_dashboard.applications
               (company_id, role_title, req_id, location, track, status, applied_on,
                next_step, next_step_at, notes, created_by)
             values (%(company_id)s, %(role_title)s, %(req_id)s, %(location)s, %(track)s,
@@ -242,7 +242,7 @@ def update_application(app_id: int, values: dict[str, Any]) -> None:
     with tx("manual") as cur:
         cur.execute(
             """
-            update jobs.applications set
+            update jobs_nathan_dashboard.applications set
               role_title = %(role_title)s, req_id = %(req_id)s, location = %(location)s,
               track = %(track)s, status = %(status)s, applied_on = %(applied_on)s,
               next_step = %(next_step)s, next_step_at = %(next_step_at)s, notes = %(notes)s
@@ -258,7 +258,7 @@ def save_interview(values: dict[str, Any], interview_id: int | None = None) -> i
         if interview_id is None:
             cur.execute(
                 """
-                insert into jobs.interviews
+                insert into jobs_nathan_dashboard.interviews
                   (application_id, kind, starts_at, ends_at, location, interviewers, notes, source, sync_state)
                 values (%(application_id)s, %(kind)s, %(starts_at)s, %(ends_at)s, %(location)s,
                         %(interviewers)s, %(notes)s, 'manual', 'pending')
@@ -270,7 +270,7 @@ def save_interview(values: dict[str, Any], interview_id: int | None = None) -> i
         else:
             cur.execute(
                 """
-                update jobs.interviews set
+                update jobs_nathan_dashboard.interviews set
                   application_id = %(application_id)s, kind = %(kind)s, starts_at = %(starts_at)s,
                   ends_at = %(ends_at)s, location = %(location)s, interviewers = %(interviewers)s,
                   notes = %(notes)s, sync_state = 'pending'
@@ -282,7 +282,7 @@ def save_interview(values: dict[str, Any], interview_id: int | None = None) -> i
         # Scheduling an interview moves an earlier-stage application to 'interview'.
         cur.execute(
             """
-            update jobs.applications set status = 'interview'
+            update jobs_nathan_dashboard.applications set status = 'interview'
             where id = %s and status in ('applied','screen','assessment')
             """,
             (values["application_id"],),
@@ -294,7 +294,7 @@ def cancel_interview(interview_id: int) -> None:
     with tx("manual") as cur:
         cur.execute(
             """
-            update jobs.interviews set
+            update jobs_nathan_dashboard.interviews set
               sync_state = case when gcal_event_id is null then 'cancelled' else 'cancel_requested' end
             where id = %s
             """,
@@ -306,10 +306,10 @@ def resolve_review(message_id: str, application_id: int | None, label: str, appl
     from .constants import LABEL_TO_STATUS, OPEN_STATUSES
 
     with tx("manual") as cur:
-        cur.execute("select set_config('jobs.email_id', %s, true)", (message_id,))
+        cur.execute("select set_config('jobs_nathan_dashboard.email_id', %s, true)", (message_id,))
         cur.execute(
             """
-            update jobs.emails set application_id = %s, label = %s, needs_review = false
+            update jobs_nathan_dashboard.emails set application_id = %s, label = %s, needs_review = false
             where gmail_message_id = %s
             """,
             (application_id, label, message_id),
@@ -317,7 +317,7 @@ def resolve_review(message_id: str, application_id: int | None, label: str, appl
         new_status = LABEL_TO_STATUS.get(label)
         if apply_status and application_id and new_status:
             cur.execute(
-                "select status::text as status from jobs.applications where id = %s", (application_id,)
+                "select status::text as status from jobs_nathan_dashboard.applications where id = %s", (application_id,)
             )
             current = cur.fetchone()["status"]
             moves_forward = (
@@ -326,5 +326,5 @@ def resolve_review(message_id: str, application_id: int | None, label: str, appl
             )
             if moves_forward:
                 cur.execute(
-                    "update jobs.applications set status = %s where id = %s", (new_status, application_id)
+                    "update jobs_nathan_dashboard.applications set status = %s where id = %s", (new_status, application_id)
                 )
